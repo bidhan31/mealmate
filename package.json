@@ -1,0 +1,25 @@
+{
+  "name": "meal-mate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MealMate — Monthly Meal & Expense Management for shared households",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm --workspace server run dev",
+    "dev:client": "npm --workspace client run dev",
+    "build": "npm --workspace server run build && npm --workspace client run build",
+    "lint": "npm --workspace server run lint && npm --workspace client run lint",
+    "test": "npm --workspace server run test && npm --workspace client run test",
+    "typecheck": "npm --workspace server run typecheck && npm --workspace client run typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
