@@ -6,6 +6,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '@/app/hooks';
 import { login, googleLogin } from '@/features/auth/authSlice';
 import { authApi } from '@/api/authApi';
+import { tokenFromVerificationUrl } from '@/lib/verificationUrl';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { GoogleSignInButton } from '@/components/ui/GoogleSignInButton';
@@ -31,6 +32,10 @@ export default function LoginPage() {
   // Email verification state
   const [resendingEmail, setResendingEmail] = useState(false);
   const [resendStatus, setResendStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Development-only: link returned by the API when no mail provider is configured
+  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
+  const [verifyingNow, setVerifyingNow] = useState(false);
 
   const stateLocation = location.state as { from?: Location | string | { pathname: string } } | undefined;
   const from = stateLocation?.from;
@@ -72,12 +77,31 @@ export default function LoginPage() {
     }
 
     setResendingEmail(true);
+    setVerificationUrl(null);
     try {
-      const res = await authApi.resendVerification(emailVal);
-      setResendStatus({
-        type: 'success',
-        message: res.data.message || `Verification email sent to ${emailVal}. Please check your inbox.`,
-      });
+      const { data } = await authApi.resendVerification(emailVal);
+      const info = data.data;
+      setVerificationUrl(info.verificationUrl ?? null);
+
+      if (info.emailSent) {
+        setResendStatus({
+          type: 'success',
+          message: data.message || `Verification email sent to ${emailVal}. Please check your inbox.`,
+        });
+      } else if (info.verificationUrl) {
+        // No mail provider configured (development) — the account can be
+        // verified instantly with the link shown below instead of waiting.
+        setResendStatus({
+          type: 'success',
+          message:
+            'Email delivery is not configured in this environment, so nothing was sent. Use “Verify now” below to activate this account.',
+        });
+      } else {
+        setResendStatus({
+          type: 'error',
+          message: data.message || 'The verification email could not be sent. Please try again shortly.',
+        });
+      }
     } catch (err) {
       const x = err as { response?: { data?: { message?: string } } };
       setResendStatus({
@@ -86,6 +110,27 @@ export default function LoginPage() {
       });
     } finally {
       setResendingEmail(false);
+    }
+  };
+
+  /** Verify the account with the link the API returned (no inbox required). */
+  const handleVerifyNow = async () => {
+    const token = tokenFromVerificationUrl(verificationUrl);
+    if (!token) return;
+    setVerifyingNow(true);
+    setResendStatus(null);
+    try {
+      await authApi.verifyEmail(token);
+      setVerificationUrl(null);
+      setResendStatus({ type: 'success', message: 'Email verified! You can log in now.' });
+    } catch (err) {
+      const x = err as { response?: { data?: { message?: string } } };
+      setResendStatus({
+        type: 'error',
+        message: x.response?.data?.message ?? 'Verification failed — the link may have expired.',
+      });
+    } finally {
+      setVerifyingNow(false);
     }
   };
 
@@ -138,6 +183,24 @@ export default function LoginPage() {
             >
               &times;
             </button>
+          </div>
+        )}
+
+        {verificationUrl && (
+          <div className="rounded-lg border border-dashed border-border p-3 space-y-2">
+            <p className="text-xs font-semibold text-foreground text-left">
+              Development mode — verify without email
+            </p>
+            <p className="text-xs text-muted-foreground break-all text-left">{verificationUrl}</p>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={handleVerifyNow}
+              loading={verifyingNow}
+            >
+              Verify now
+            </Button>
           </div>
         )}
 

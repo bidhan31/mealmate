@@ -1,15 +1,20 @@
 import { apiClient } from './client';
-import type { ApiEnvelope, AuthResult, AuthUser } from '@/types/auth';
+import type { ApiEnvelope, AuthResult, AuthUser, VerificationDispatch } from '@/types/auth';
 
 export const authApi = {
   register: (name: string, email: string, password: string) =>
-    apiClient.post<ApiEnvelope<{ user: AuthUser }>>('/auth/register', { name, email, password }),
+    apiClient.post<ApiEnvelope<{ user: AuthUser; message: string } & VerificationDispatch>>(
+      '/auth/register',
+      { name, email, password },
+    ),
 
   verifyEmail: (token: string) =>
     apiClient.post<ApiEnvelope<{ user: AuthUser }>>('/auth/verify-email', { token }),
 
   resendVerification: (email: string) =>
-    apiClient.post<ApiEnvelope<{ message: string }>>('/auth/resend-verification', { email }),
+    apiClient.post<ApiEnvelope<{ message: string } & VerificationDispatch>>('/auth/resend-verification', {
+      email,
+    }),
 
   login: (email: string, password: string) =>
     apiClient.post<ApiEnvelope<AuthResult>>('/auth/login', { email, password }),

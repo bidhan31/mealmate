@@ -4,7 +4,8 @@ import { apiClient } from '@/api/client';
 import { homeApi } from '@/api/homeApi';
 import { dueApi, walletApi } from '@/api/financeApi';
 import { setUser } from '@/features/auth/authSlice';
-import type { ApiEnvelope, AuthUser } from '@/types/auth';
+import { tokenFromVerificationUrl } from '@/lib/verificationUrl';
+import type { ApiEnvelope, AuthUser, VerificationDispatch } from '@/types/auth';
 import type { HomeDto, MyMembership } from '@/types/home';
 import type { MemberDueRow } from '@/types/finance';
 import { Input } from '@/components/ui/Input';
@@ -74,6 +75,8 @@ export default function ProfilePage() {
 
   // Email verification resend state
   const [verifyingEmail, setVerifyingEmail] = useState(false);
+  // Development-only: verification link returned when no mail provider is configured
+  const [devVerificationUrl, setDevVerificationUrl] = useState<string | null>(null);
 
   // Synchronize state when user changes
   useEffect(() => {
@@ -154,14 +157,39 @@ export default function ProfilePage() {
     setVerifyingEmail(true);
     setMsg(null);
     setErr(null);
+    setDevVerificationUrl(null);
     try {
-      const res = await apiClient.post<ApiEnvelope<{ message: string }>>('/auth/resend-verification', {
-        email: user.email,
-      });
+      const res = await apiClient.post<ApiEnvelope<{ message: string } & VerificationDispatch>>(
+        '/auth/resend-verification',
+        { email: user.email },
+      );
       setMsg(res.data.message || 'Verification link sent to your email.');
+      setDevVerificationUrl(res.data.data.verificationUrl ?? null);
+      // Surface the provider reason (non-production only) so misconfiguration is obvious.
+      if (!res.data.data.emailSent && res.data.data.mailError) setErr(res.data.data.mailError);
     } catch (e) {
       const x = e as { response?: { data?: { message?: string } } };
       setErr(x.response?.data?.message ?? 'Failed to send verification email');
+    } finally {
+      setVerifyingEmail(false);
+    }
+  };
+
+  /** Verify with the link the API returned (no inbox needed, non-production). */
+  const handleVerifyNow = async () => {
+    const token = tokenFromVerificationUrl(devVerificationUrl);
+    if (!token) return;
+    setVerifyingEmail(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      const res = await apiClient.post<ApiEnvelope<{ user: AuthUser }>>('/auth/verify-email', { token });
+      dispatch(setUser(res.data.data.user));
+      setDevVerificationUrl(null);
+      setMsg('Email verified successfully.');
+    } catch (e) {
+      const x = e as { response?: { data?: { message?: string } } };
+      setErr(x.response?.data?.message ?? 'Verification failed — the link may have expired.');
     } finally {
       setVerifyingEmail(false);
     }
@@ -537,15 +565,28 @@ export default function ProfilePage() {
                     <Mail className="w-4 h-4 text-muted-foreground" /> Registered Email Address
                   </label>
                   {!user.emailVerified && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleResendVerification}
-                      loading={verifyingEmail}
-                      className="text-xs text-primary hover:underline h-auto p-0"
-                    >
-                      Resend verification email
-                    </Button>
+                    <div className="flex items-center gap-3">
+                      {devVerificationUrl && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleVerifyNow}
+                          loading={verifyingEmail}
+                          className="text-xs text-primary hover:underline h-auto p-0"
+                        >
+                          Verify now
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleResendVerification}
+                        loading={verifyingEmail}
+                        className="text-xs text-primary hover:underline h-auto p-0"
+                      >
+                        Resend verification email
+                      </Button>
+                    </div>
                   )}
                 </div>
                 <Input
