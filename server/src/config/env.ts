@@ -22,6 +22,32 @@ const envSchema = z.object({
   BREVO_API_KEY: z.string().optional().default(''),
   MAIL_FROM: z.string().optional().default('MealMate <no-reply@mealmate.app>'),
 
+  /**
+   * Which transport delivers mail: 'brevo' | 'smtp' | 'console'.
+   * Unset → auto-detect: Brevo key first, then SMTP, otherwise console logging.
+   */
+  MAIL_PROVIDER: z.string().optional().default(''),
+
+  /** SMTP transport (e.g. Gmail: smtp.gmail.com, port 465, app password). */
+  SMTP_HOST: z.string().optional().default(''),
+  SMTP_PORT: z.coerce.number().optional().default(587),
+  /** 'true' → implicit TLS (usually port 465). Unset → inferred from the port. */
+  SMTP_SECURE: z.string().optional().default(''),
+  SMTP_USER: z.string().optional().default(''),
+  SMTP_PASS: z.string().optional().default(''),
+
+  /**
+   * Allow accounts with an unverified email address to log in.
+   * Unset → `true` outside production (so a missing/blocked mail provider can
+   * never lock developers out) and `false` in production (strict verification).
+   */
+  ALLOW_UNVERIFIED_LOGIN: z
+    .string()
+    .optional()
+    .transform((v) =>
+      v === undefined || v.trim() === '' ? undefined : v.trim().toLowerCase() === 'true',
+    ),
+
   CLIENT_URL: z.string().default('http://localhost:5173'),
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
 });
@@ -29,19 +55,23 @@ const envSchema = z.object({
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  // eslint-disable-next-line no-console
   console.error('❌ Invalid environment configuration:');
-  // eslint-disable-next-line no-console
   console.error(parsed.error.flatten().fieldErrors);
   process.exit(1);
 }
 
 const data = parsed.data;
 
+// Unverified accounts may sign in when explicitly enabled. The default keeps
+// local development usable even when no mail provider is configured, while
+// production stays strict (a verified email is required).
+const allowUnverifiedLogin = data.ALLOW_UNVERIFIED_LOGIN ?? data.NODE_ENV !== 'production';
+
 export const env = {
   ...data,
   isProd: data.NODE_ENV === 'production',
   isDev: data.NODE_ENV === 'development',
   isTest: data.NODE_ENV === 'test',
+  allowUnverifiedLogin,
   corsOrigins: data.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
 };

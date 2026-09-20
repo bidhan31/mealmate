@@ -1,7 +1,6 @@
 import { connectDB, disconnectDB } from './config/db';
 import { Home } from './modules/homes/home.model';
 import { Membership } from './modules/memberships/membership.model';
-import { User } from './modules/users/user.model';
 
 async function check() {
   await connectDB();

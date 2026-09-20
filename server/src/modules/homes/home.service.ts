@@ -1,6 +1,7 @@
 import crypto from 'crypto';
-import mongoose, { Types } from 'mongoose';
+import { Types } from 'mongoose';
 import { ApiError } from '../../utils/ApiError';
+import { withTransaction } from '../../utils/transaction';
 import { MembershipStatus, NotificationType, Role } from '../../config/enums';
 import { User } from '../users/user.model';
 import { Home, IHome } from './home.model';
@@ -46,49 +47,47 @@ export const homeService = {
     const uid = new Types.ObjectId(userId);
     await assertNoActiveOrPendingMembership(uid);
 
-    const session = await mongoose.startSession();
-    try {
-      let created!: IHome;
-      await session.withTransaction(async () => {
-        const [home] = await Home.create(
-          [
-            {
-              name,
-              adminUserId: uid,
-              inviteCode: generateInviteCode(),
-              timezone: timezone || 'Asia/Dhaka',
-            },
-          ],
-          { session },
-        );
+    const created = await withTransaction(async (session) => {
+      const [home] = await Home.create(
+        [
+          {
+            name,
+            adminUserId: uid,
+            inviteCode: generateInviteCode(),
+            timezone: timezone || 'Asia/Dhaka',
+          },
+        ],
+        { session },
+      );
 
-        const [membership] = await Membership.create(
-          [
-            {
-              userId: uid,
-              homeId: home._id,
-              role: Role.Admin,
-              status: MembershipStatus.Active,
-              joinedAt: new Date(),
-            },
-          ],
-          { session },
-        );
+      const [membership] = await Membership.create(
+        [
+          {
+            userId: uid,
+            homeId: home._id,
+            role: Role.Admin,
+            status: MembershipStatus.Active,
+            joinedAt: new Date(),
+          },
+        ],
+        { session },
+      );
 
-        await User.updateOne({ _id: uid }, { activeMembershipId: membership._id }, { session });
-        
-        // Clean up any other invites or pending requests for this user across all homes
-        await Membership.deleteMany({
+      await User.updateOne({ _id: uid }, { activeMembershipId: membership._id }, { session });
+
+      // Clean up any other invites or pending requests for this user across all homes
+      await Membership.deleteMany(
+        {
           userId: uid,
           status: { $in: [MembershipStatus.Invited, MembershipStatus.Pending] },
-        }, { session });
+        },
+        { session },
+      );
 
-        created = home;
-      });
-      return { home: publicHome(created) };
-    } finally {
-      await session.endSession();
-    }
+      return home;
+    });
+
+    return { home: publicHome(created) };
   },
 
   async joinByInviteCode(userId: string, inviteCode: string) {

@@ -101,22 +101,26 @@ export default function DashboardPage() {
       let currentMonthTotalRecharge;
       let history;
       let balance;
-      (historyData.code===200)?(
-        currentMonthTotalRecharge = historyData?.data?.reduce((sum: number, item: any) => sum + item.totalAmount, 0),
+      if (historyData.code === 200) {
+        currentMonthTotalRecharge = historyData?.data?.reduce((sum: number, item: any) => sum + item.totalAmount, 0);
         history = {
           history: historyData?.data,
-          currentMonthTotalRecharge: currentMonthTotalRecharge?? null,
+          currentMonthTotalRecharge: currentMonthTotalRecharge ?? null,
           lastRecharge: historyData?.data[0]?.totalAmount ?? 0,
-          lastRechargeDate : historyData?.data[0]?.rechargeDate ?? ""
-        }
-      ):(history=undefined);
+          lastRechargeDate: historyData?.data[0]?.rechargeDate ?? '',
+        };
+      } else {
+        history = undefined;
+      }
 
-      (balanceData.code===200)?(
+      if (balanceData.code === 200) {
         balance = {
-            currentBalance: balanceData.data?.balance,
-            totalMonthlyUsage: balanceData.data?.currentMonthConsumption,
-          }
-      ):(balance=undefined);
+          currentBalance: balanceData.data?.balance,
+          totalMonthlyUsage: balanceData.data?.currentMonthConsumption,
+        };
+      } else {
+        balance = undefined;
+      }
       setDescoStatus({history, balance})
       } catch(e) {
           console.error(e)

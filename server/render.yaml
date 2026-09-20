@@ -28,6 +28,24 @@ services:
         sync: false
       - key: MAIL_FROM
         sync: false
+      # Leave unset (defaults to false in production) or set to "true" as a
+      # temporary unblock while the mail provider is unavailable.
+      - key: ALLOW_UNVERIFIED_LOGIN
+        sync: false
+      # 'brevo' | 'smtp' | 'console' — unset to auto-detect.
+      - key: MAIL_PROVIDER
+        sync: false
+      # SMTP transport (optional alternative to Brevo, e.g. Gmail).
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURE
+        value: "true"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
       - key: CLIENT_URL
         sync: false
       - key: CORS_ORIGINS

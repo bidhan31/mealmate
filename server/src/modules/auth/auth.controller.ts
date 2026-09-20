@@ -7,7 +7,7 @@ export const authController = {
   register: asyncHandler(async (req: Request, res: Response) => {
     const { name, email, password } = req.body;
     const result = await authService.register(name, email, password);
-    sendSuccess(res, result, 'Registered. Check your email to verify your account.', 201);
+    sendSuccess(res, result, result.message, 201);
   }),
 
   verifyEmail: asyncHandler(async (req: Request, res: Response) => {

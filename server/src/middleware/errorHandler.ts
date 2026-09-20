@@ -5,7 +5,6 @@ import { ApiError } from '../utils/ApiError';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
   let statusCode = 500;
   let message = 'Internal server error';

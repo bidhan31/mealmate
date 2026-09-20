@@ -22,7 +22,8 @@ export function taka(n: number | null | undefined): string   {
 
   const result = `${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   return result;
-}``
+}
+
 
 export function formatDatePref(dateStr: string | null | undefined): string {
   if (!dateStr) return '';

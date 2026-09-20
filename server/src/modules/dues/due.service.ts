@@ -2,7 +2,6 @@ import { Types } from 'mongoose';
 import { GuestMealStatus, MealType, MembershipStatus, CycleStatus, ExpenseCategory, ExpenseStatus } from '../../config/enums';
 import { Membership } from '../memberships/membership.model';
 import { MonthCycle } from '../monthEnd/monthEnd.model';
-import { Room } from '../rooms/room.model';
 import { Meal } from '../meals/meal.model';
 import { Expense } from '../expenses/expense.model';
 import { Deposit } from '../deposits/deposit.model';

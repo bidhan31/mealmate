@@ -1,15 +1,80 @@
 import { BrevoClient } from '@getbrevo/brevo';
+import nodemailer, { Transporter } from 'nodemailer';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
 
 let brevoClient: BrevoClient | null = null;
+let smtpTransport: Transporter | null = null;
+
+/** Sender used when MAIL_FROM is empty. */
+const DEFAULT_MAIL_FROM = 'MealMate <no-reply@mealmate.app>';
+
+const MAIL_NOT_CONFIGURED =
+  'No mail provider configured — set BREVO_API_KEY, or SMTP_HOST/SMTP_USER/SMTP_PASS.';
+
+const MAIL_SETUP_HINT =
+  'Option A (Brevo API): set BREVO_API_KEY and MAIL_FROM to a sender activated at ' +
+  'https://app.brevo.com/senders/all. ' +
+  'Option B (SMTP, e.g. Gmail): set SMTP_HOST=smtp.gmail.com, SMTP_PORT=465, SMTP_USER=<address>, ' +
+  'SMTP_PASS=<16-character app password> and MAIL_FROM="MealMate <same address>".';
 
 const BREVO_SENDER_HINT =
-  'For production, add and authenticate a sending domain or sender in the Brevo dashboard, ' +
-  "then set MAIL_FROM to that authenticated sender (e.g. 'MealMate <no-reply@yourdomain.com>').";
+  'MAIL_FROM must be a sender activated in your Brevo account, otherwise Brevo rejects the send (HTTP 400).';
 
-function hasBrevoConfig(): boolean {
-  return Boolean(env.BREVO_API_KEY);
+const SMTP_HINT =
+  'For Gmail use an App Password (Google Account → Security → 2-Step Verification → App passwords), ' +
+  'not your normal account password.';
+
+/** True when a Brevo API key is configured. */
+export function isBrevoConfigured(): boolean {
+  return Boolean(env.BREVO_API_KEY && env.BREVO_API_KEY.trim());
+}
+
+/** True when SMTP credentials are configured. */
+export function isSmtpConfigured(): boolean {
+  return Boolean(
+    env.SMTP_HOST && env.SMTP_HOST.trim() && env.SMTP_USER && env.SMTP_USER.trim() && env.SMTP_PASS,
+  );
+}
+
+/** The sender address actually used for outgoing mail. */
+export function configuredFrom(): string {
+  return (env.MAIL_FROM && env.MAIL_FROM.trim()) || DEFAULT_MAIL_FROM;
+}
+
+export type MailProvider = 'brevo' | 'smtp' | 'console';
+
+export interface MailProviderConfig {
+  explicit?: string;
+  brevoKey?: string;
+  smtpHost?: string;
+  smtpUser?: string;
+  smtpPass?: string;
+}
+
+/**
+ * Resolves which transport delivers mail. An explicit MAIL_PROVIDER always
+ * wins; otherwise the first fully configured provider is used and we fall back
+ * to console logging (development) when nothing is configured.
+ */
+export function resolveMailProvider(cfg: MailProviderConfig = {}): MailProvider {
+  const explicit = (cfg.explicit ?? env.MAIL_PROVIDER ?? '').trim().toLowerCase();
+  if (explicit === 'brevo' || explicit === 'smtp' || explicit === 'console') return explicit;
+
+  const brevoKey = cfg.brevoKey ?? env.BREVO_API_KEY;
+  if (brevoKey && brevoKey.trim()) return 'brevo';
+
+  const smtpHost = cfg.smtpHost ?? env.SMTP_HOST;
+  const smtpUser = cfg.smtpUser ?? env.SMTP_USER;
+  const smtpPass = cfg.smtpPass ?? env.SMTP_PASS;
+  if (smtpHost && smtpHost.trim() && smtpUser && smtpUser.trim() && smtpPass) return 'smtp';
+
+  return 'console';
+}
+
+/** True when a real transport (not console logging) is configured. */
+export function isMailConfigured(): boolean {
+  return resolveMailProvider() !== 'console';
 }
 
 function getBrevoClient(): BrevoClient {
@@ -17,6 +82,50 @@ function getBrevoClient(): BrevoClient {
     brevoClient = new BrevoClient({ apiKey: env.BREVO_API_KEY });
   }
   return brevoClient;
+}
+
+function getSmtpTransport(): Transporter {
+  if (!smtpTransport) {
+    const secure = env.SMTP_SECURE
+      ? env.SMTP_SECURE.trim().toLowerCase() === 'true'
+      : env.SMTP_PORT === 465;
+
+    smtpTransport = nodemailer.createTransport({
+      host: env.SMTP_HOST.trim(),
+      port: env.SMTP_PORT,
+      secure,
+      auth: {
+        user: env.SMTP_USER.trim(),
+        // Provider app passwords are pasted with grouping spaces (e.g. Gmail)
+        pass: env.SMTP_PASS.replace(/\s+/g, ''),
+      },
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 20_000,
+    });
+  }
+  return smtpTransport;
+}
+
+/**
+ * Human-readable reason for a failed send, covering both the Brevo SDK
+ * (`body.message`) and SMTP/nodemailer errors (`code`, `response`).
+ */
+function describeMailError(err: unknown): string {
+  const e = err as {
+    statusCode?: number;
+    body?: unknown;
+    message?: string;
+    code?: string;
+    response?: string;
+  };
+  const body = e?.body as { message?: string; code?: string } | undefined;
+  const detail =
+    body?.message ?? body?.code ?? e?.response ?? e?.message ?? e?.code ?? 'Unknown mail error';
+
+  if (e?.statusCode) return `Brevo API ${e.statusCode}: ${detail}`;
+  if (e?.code && !e?.response) return `${e.code}: ${detail}`;
+  return detail;
 }
 
 function parseMailbox(raw: string): { name?: string; email: string } {
@@ -27,20 +136,9 @@ function parseMailbox(raw: string): { name?: string; email: string } {
   return { email: raw.trim() };
 }
 
-async function sendMailViaBrevo({
-  to,
-  subject,
-  html,
-  text,
-}: {
-  to: string;
-  subject: string;
-  html: string;
-  text?: string;
-}): Promise<void> {
+async function sendMailViaBrevo({ to, subject, html, text }: MailOptions): Promise<void> {
   const client = getBrevoClient();
-  const fromRaw = env.MAIL_FROM || 'MealMate <hello@mealmate.app>';
-  const sender = parseMailbox(fromRaw);
+  const sender = parseMailbox(configuredFrom());
   const recipient = parseMailbox(to);
 
   const response = await client.transactionalEmails.sendTransacEmail({
@@ -56,21 +154,89 @@ async function sendMailViaBrevo({
   );
 }
 
-export async function verifyBrevo(): Promise<void> {
-  if (!hasBrevoConfig()) {
-    logger.warn('Brevo not configured — skipping Brevo API verification');
+/** Send an email through a standard SMTP account (Gmail, Zoho, Mailtrap, …). */
+export async function sendMailViaSmtp({ to, subject, html, text }: MailOptions): Promise<void> {
+  const from = configuredFrom();
+  const info = await getSmtpTransport().sendMail({
+    from,
+    to,
+    subject,
+    html,
+    ...(text ? { text } : {}),
+  });
+  logger.info(
+    { to, subject, messageId: info.messageId ?? null, from, host: env.SMTP_HOST },
+    '📧 Email sent via SMTP',
+  );
+}
+
+export async function verifyMailer(): Promise<void> {
+  const provider = resolveMailProvider();
+  const sender = parseMailbox(configuredFrom()).email;
+
+  if (provider === 'console') {
+    logger.warn(
+      { hint: MAIL_SETUP_HINT },
+      `⚠️  ${MAIL_NOT_CONFIGURED} Emails are logged to the console instead (non-production only).`,
+    );
     return;
   }
+
+  if (provider === 'smtp') {
+    try {
+      await getSmtpTransport().verify();
+      logger.info(
+        {
+          host: env.SMTP_HOST,
+          port: env.SMTP_PORT,
+          user: env.SMTP_USER,
+          sender,
+        },
+        '✅ SMTP connection verified — verification emails will be delivered',
+      );
+    } catch (err) {
+      smtpTransport = null;
+      logger.error(
+        { reason: describeMailError(err), hint: SMTP_HINT },
+        '❌ SMTP verification FAILED — check SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS',
+      );
+    }
+    return;
+  }
+
+  // ── Brevo ──
   try {
-    const account = await getBrevoClient().account.getAccount();
+    const client = getBrevoClient();
+    const account = await client.account.getAccount();
     logger.info(
       {
         account: `${account.firstName} ${account.lastName} <${account.email}>`,
+        sender,
       },
-      `✅ Brevo API verified successfully. ${BREVO_SENDER_HINT}`,
+      '✅ Brevo API verified successfully',
     );
+
+    // The most common reason verification emails never arrive is a sender that
+    // is not activated in Brevo — the API then rejects the send with HTTP 400.
+    try {
+      const { senders } = await client.senders.getSenders();
+      const active = (senders ?? []).filter((s) => s.active).map((s) => s.email);
+      const isActive = active.some((email) => email.toLowerCase() === sender.toLowerCase());
+
+      if (isActive) {
+        logger.info({ sender }, '✅ MAIL_FROM is an activated Brevo sender');
+      } else {
+        logger.error(
+          { sender, activeSenders: active, hint: BREVO_SENDER_HINT },
+          '❌ MAIL_FROM is NOT an activated sender in this Brevo account — Brevo will reject every send (HTTP 400). ' +
+            'Add/verify it at https://app.brevo.com/senders/all, or set MAIL_FROM to one of the active senders listed here.',
+        );
+      }
+    } catch (senderErr) {
+      logger.warn({ reason: describeMailError(senderErr) }, 'Could not list Brevo senders');
+    }
   } catch (err) {
-    logger.error({ err }, '❌ Brevo verification FAILED — check BREVO_API_KEY');
+    logger.error({ reason: describeMailError(err) }, '❌ Brevo verification FAILED — check BREVO_API_KEY');
     brevoClient = null;
   }
 }
@@ -82,30 +248,65 @@ interface MailOptions {
   text?: string;
 }
 
+/** Outcome of a send attempt — never an exception, so callers can recover. */
+export interface MailResult {
+  /** true when the provider accepted the message for delivery. */
+  delivered: boolean;
+  /** true when no provider is configured, so no send was attempted. */
+  skipped?: boolean;
+  /** Provider/configuration reason when delivery did not happen. */
+  error?: string;
+}
+
 /**
- * Send an email.
- * Uses Brevo's transactional email REST API. In development, mail content is
- * logged when a BREVO_API_KEY has not been configured.
+ * Send an email using the configured transport (Brevo API or SMTP).
+ *
+ * Never throws: the outcome is returned so a mail outage can never break the
+ * caller's flow (e.g. registration). Outside production, when no provider is
+ * configured, the message body (which contains the action link) is logged so
+ * the flow can still be completed locally.
  */
-export async function sendMail({ to, subject, html, text }: MailOptions): Promise<void> {
-  if (hasBrevoConfig()) {
+export async function sendMail(options: MailOptions): Promise<MailResult> {
+  const { to, subject, html, text } = options;
+  const provider = resolveMailProvider();
+
+  if (provider === 'brevo') {
     try {
-      await sendMailViaBrevo({ to, subject, html, text });
-      return;
-    } catch (brevoErr) {
-      logger.error({ err: brevoErr, to, subject }, 'Brevo REST email send failed');
-      throw brevoErr instanceof Error ? brevoErr : new Error('Failed to send email via Brevo');
+      await sendMailViaBrevo(options);
+      return { delivered: true };
+    } catch (err) {
+      const error = describeMailError(err);
+      logger.error(
+        { err, to, subject, provider, from: configuredFrom(), reason: error },
+        '❌ Email send failed via Brevo',
+      );
+      return { delivered: false, error };
     }
   }
 
-  if (env.isProd) {
-    const message = 'Email provider not configured for production. Set BREVO_API_KEY.';
-    logger.error({ to, subject }, message);
-    throw new Error(message);
+  if (provider === 'smtp') {
+    try {
+      await sendMailViaSmtp(options);
+      return { delivered: true };
+    } catch (err) {
+      const error = describeMailError(err);
+      logger.error(
+        { err, to, subject, provider, from: configuredFrom(), reason: error, hint: SMTP_HINT },
+        '❌ Email send failed via SMTP',
+      );
+      return { delivered: false, error };
+    }
   }
 
-  logger.warn({ to, subject }, 'Brevo not configured — email not sent (logging instead)');
-  logger.info({ to, subject, text: text ?? html }, 'Email content');
+  // ── Console fallback: no provider configured ──
+  if (env.isProd) {
+    logger.error({ to, subject }, `❌ ${MAIL_NOT_CONFIGURED} Emails cannot be delivered in production.`);
+    return { delivered: false, skipped: true, error: MAIL_NOT_CONFIGURED };
+  }
+
+  logger.warn({ to, subject }, `⚠️  ${MAIL_NOT_CONFIGURED} Logging the email instead (development).`);
+  logger.info({ to, subject, body: text ?? html }, '📧 [DEV] Email preview');
+  return { delivered: false, skipped: true, error: MAIL_NOT_CONFIGURED };
 }
 
 function emailWrapper(content: string): string {

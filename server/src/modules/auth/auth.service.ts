@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { OAuth2Client } from 'google-auth-library';
 import { Types } from 'mongoose';
 import { env } from '../../config/env';
+import { logger } from '../../config/logger';
 import { ApiError } from '../../utils/ApiError';
 import {
   passwordResetEmail,
@@ -79,6 +80,48 @@ async function createEmailVerification(user: IUser): Promise<string> {
   return `${env.CLIENT_URL}/verify-email?token=${raw}`;
 }
 
+interface VerificationDispatch {
+  link: string;
+  emailSent: boolean;
+  mailError?: string;
+}
+
+/**
+ * Issues a fresh verification token for the user and tries to email the link.
+ *
+ * Never throws — a skipped or failed delivery is reported back so that account
+ * creation (and resends) still succeed instead of leaving the user in a
+ * half-registered, unrecoverable state.
+ */
+async function dispatchVerificationEmail(user: IUser): Promise<VerificationDispatch> {
+  const link = await createEmailVerification(user);
+  const mail = verificationEmail(user.name, link);
+  const result = await sendMail({ to: user.email, ...mail });
+
+  if (!result.delivered) {
+    logger.warn(
+      { email: user.email, reason: result.error ?? 'mail provider unavailable' },
+      'Verification email was not delivered',
+    );
+  }
+
+  return { link, emailSent: result.delivered, mailError: result.error };
+}
+
+/**
+ * Extra fields that let a client finish verification without an inbox.
+ * Only returned outside production, so a local/dev environment (or a stalled
+ * mail provider) can never leave an account permanently locked out while
+ * production keeps its strict, token-based verification.
+ */
+function verificationDebugInfo(dispatch: VerificationDispatch) {
+  if (env.isProd) return {};
+  return {
+    verificationUrl: dispatch.link,
+    ...(dispatch.mailError ? { mailError: dispatch.mailError } : {}),
+  };
+}
+
 export const authService = {
   async register(name: string, email: string, password: string) {
     const normalizedEmail = normalizeEmail(email);
@@ -88,11 +131,19 @@ export const authService = {
     const passwordHash = await hashPassword(password);
     const user = await User.create({ name, email: normalizedEmail, passwordHash, emailVerified: false });
 
-    const link = await createEmailVerification(user);
-    const mail = verificationEmail(user.name, link);
-    await sendMail({ to: user.email, ...mail });
+    const dispatch = await dispatchVerificationEmail(user);
 
-    return { user: publicUser(user) };
+    return {
+      user: publicUser(user),
+      emailSent: dispatch.emailSent,
+      verifyRequired: !env.allowUnverifiedLogin,
+      ...verificationDebugInfo(dispatch),
+      message: dispatch.emailSent
+        ? 'Registered. Check your email to verify your account.'
+        : env.isProd
+          ? 'Account created, but the verification email could not be sent. Please use “Resend verification” shortly.'
+          : 'Account created. No email provider is configured, so use the verification link below.',
+    };
   },
 
   async verifyEmail(rawToken: string) {
@@ -120,10 +171,18 @@ export const authService = {
       throw ApiError.badRequest('This account is already verified. You can log in directly.');
     }
 
-    const link = await createEmailVerification(user);
-    const mail = verificationEmail(user.name, link);
-    await sendMail({ to: user.email, ...mail });
-    return { message: `Verification email sent to ${user.email}. Please check your inbox.` };
+    const dispatch = await dispatchVerificationEmail(user);
+
+    return {
+      emailSent: dispatch.emailSent,
+      verifyRequired: !env.allowUnverifiedLogin,
+      ...verificationDebugInfo(dispatch),
+      message: dispatch.emailSent
+        ? `Verification email sent to ${user.email}. Please check your inbox (and spam folder).`
+        : env.isProd
+          ? 'We could not send the verification email right now. Please try again in a few minutes.'
+          : 'No email provider is configured — use the verification link below to verify now.',
+    };
   },
 
   async login(email: string, password: string) {
@@ -134,7 +193,20 @@ export const authService = {
     const ok = await verifyPassword(password, user.passwordHash);
     if (!ok) throw ApiError.unauthorized('Invalid email or password');
 
-    if (!user.emailVerified) throw ApiError.forbidden('Please verify your email before logging in');
+    if (!user.emailVerified) {
+      if (!env.allowUnverifiedLogin) {
+        throw ApiError.forbidden(
+          'Please verify your email before logging in. ' +
+            'If you did not get the link, use “Verify email / Resend link” to request a new one.',
+        );
+      }
+      // Verification is not enforced in this environment (ALLOW_UNVERIFIED_LOGIN),
+      // so a missing/broken mail provider can never lock a real user out.
+      logger.warn(
+        { userId: user._id.toString(), email: user.email },
+        'Login allowed for an unverified email address (ALLOW_UNVERIFIED_LOGIN is enabled)',
+      );
+    }
 
     const tokens = await issueTokens(user);
     return { user: publicUser(user), ...tokens };
@@ -174,7 +246,13 @@ export const authService = {
       });
       const link = `${env.CLIENT_URL}/reset-password?token=${raw}`;
       const mail = passwordResetEmail(user.name, link);
-      await sendMail({ to: user.email, ...mail });
+      const result = await sendMail({ to: user.email, ...mail });
+      if (!result.delivered) {
+        logger.warn(
+          { email: user.email, reason: result.error ?? 'mail provider unavailable' },
+          'Password reset email was not delivered',
+        );
+      }
     }
     return { message: 'If an account exists, a password reset email has been sent.' };
   },

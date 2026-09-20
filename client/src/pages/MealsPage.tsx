@@ -53,11 +53,13 @@ const nivoTheme = {
 
 
 
+const DEFAULT_MEAL_SETTINGS = { breakfast: true, lunch: true, dinner: true };
+
 export default function MealsPage() {
   const myMembershipId = useAppSelector((s) => s.home.membership?.id);
   const isAdmin = useAppSelector((s) => s.home.membership?.role === 'admin');
   const homeWindows = useAppSelector((s) => s.home.home?.disabledSlots ?? []);
-  const mealSettings = useAppSelector((s) => s.home.home?.mealSettings) ?? { breakfast: true, lunch: true, dinner: true };
+  const mealSettings = useAppSelector((s) => s.home.home?.mealSettings) ?? DEFAULT_MEAL_SETTINGS;
   const dispatch = useAppDispatch();
 
   const activeSlots = useMemo(() => {
@@ -88,7 +90,7 @@ export default function MealsPage() {
 
   const load = useCallback(async () => {
     setError(null);
-    try {``
+    try {
       const [d, m, g, ms, cal] = await Promise.all([
         mealApi.byDate(date),
         membershipApi.list('active'),

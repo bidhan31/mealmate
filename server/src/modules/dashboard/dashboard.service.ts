@@ -4,7 +4,6 @@ import { Membership } from '../memberships/membership.model';
 import { Meal } from '../meals/meal.model';
 import { Expense } from '../expenses/expense.model';
 import { Deposit } from '../deposits/deposit.model';
-import { Payment } from '../payments/payment.model';
 import { FoodPurchase } from '../foodPurchases/foodPurchase.model';
 import { dueService } from '../dues/due.service';
 import { walletService } from '../wallet/wallet.service';
