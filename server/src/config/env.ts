@@ -60,8 +60,8 @@ const envSchema = z.object({
       v === undefined || v.trim() === '' ? undefined : v.trim().toLowerCase() === 'true',
     ),
 
-    CLIENT_URL: z.string().optional().default('http://localhost:5173'),
-  CORS_ORIGINS: z.string().optional().default('http://localhost:5173'),
+    CLIENT_URL: z.string().optional(),
+  CORS_ORIGINS: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -80,25 +80,39 @@ const data = parsed.data;
 const allowUnverifiedLogin = data.ALLOW_UNVERIFIED_LOGIN ?? data.NODE_ENV !== 'production';
 
 /**
- * Live Vercel frontend URL. Used as a production fallback for the verification
- * and password-reset links (and CORS) when CLIENT_URL / CORS_ORIGINS are not
- * supplied in the environment, so those links are never sent pointing at
- * `localhost` in production. Local dev always provides CLIENT_URL=localhost:
- * 5173 in server/.env, so this default is only a safety net.
+ * Live Vercel frontend URL. Used as the default for CLIENT_URL and CORS_ORIGINS
+ * whenever those env vars are unset. Local development always provides them in
+ * server/.env, so this is purely a safety net that keeps verification/reset
+ * e-mail links pointed at the real production domain instead of `localhost`.
  */
 const PRODUCTION_CLIENT_URL = 'https://mealmate-client-three.vercel.app';
 
-const clientUrl: string = (data.CLIENT_URL ?? '').trim()
-  ? data.CLIENT_URL
-  : data.NODE_ENV === 'production'
-    ? PRODUCTION_CLIENT_URL
-    : 'http://localhost:5173';
+/**
+ * Validate `CLIENT_URL` (a single origin) and fall back to the production URL
+ * when it is missing or malformed — this guards against e.g. an unset env var
+ * or a stray comma-separated value that would otherwise produce invalid
+ * verification/reset links pointing at `localhost`.
+ */
+function safeClientUrl(value: string): string {
+  // Honor a valid locally-supplied origin (e.g. http://localhost:5173 from
+  // server/.env); fall back to the production URL for empty/malformed values.
+  return value && isValidUrl(value) ? value.trim() : PRODUCTION_CLIENT_URL;
+}
 
-const corsOriginsRaw: string = (data.CORS_ORIGINS ?? '').trim()
-  ? data.CORS_ORIGINS
-  : data.NODE_ENV === 'production'
-    ? `${PRODUCTION_CLIENT_URL},http://localhost:5173`
-    : 'http://localhost:5173';
+function isValidUrl(value: string): boolean {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const clientUrl: string = safeClientUrl((data.CLIENT_URL ?? '').trim());
+
+const corsOriginsRaw: string =
+  (data.CORS_ORIGINS ?? '').trim() ||
+  `${PRODUCTION_CLIENT_URL},http://localhost:5173`;
 
 export const env = {
   ...data,
