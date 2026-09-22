@@ -1,9 +1,18 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import DashboardPage from '@/pages/DashboardPage';
 
 import { Provider } from 'react-redux';
 import { store } from '@/app/store';
+
+vi.mock('@/api/homeApi', () => ({
+  homeApi: { myHome: vi.fn().mockResolvedValue({ data: { data: {} } }) },
+}));
+vi.mock('@/api/financeApi', () => ({
+  dashboardApi: { summary: vi.fn().mockResolvedValue({ data: { data: null } }) },
+  monthEndApi: { status: vi.fn().mockResolvedValue({ data: { data: null } }) },
+  mealApi: { list: vi.fn().mockResolvedValue({ data: { data: [] } }) },
+}));
 
 describe('DashboardPage', () => {
   it('renders the overview cards', () => {
