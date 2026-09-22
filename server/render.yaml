@@ -46,6 +46,6 @@ services:
       - key: SMTP_PASS
         sync: false
       - key: CLIENT_URL
-        sync: false
+        value: https://mealmate-client-three.vercel.app
       - key: CORS_ORIGINS
         value: https://mealmate-client-three.vercel.app,http://localhost:5173

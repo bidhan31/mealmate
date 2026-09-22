@@ -60,8 +60,8 @@ const envSchema = z.object({
       v === undefined || v.trim() === '' ? undefined : v.trim().toLowerCase() === 'true',
     ),
 
-  CLIENT_URL: z.string().default('http://localhost:5173'),
-  CORS_ORIGINS: z.string().default('http://localhost:5173'),
+    CLIENT_URL: z.string().optional().default('http://localhost:5173'),
+  CORS_ORIGINS: z.string().optional().default('http://localhost:5173'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -79,11 +79,34 @@ const data = parsed.data;
 // production stays strict (a verified email is required).
 const allowUnverifiedLogin = data.ALLOW_UNVERIFIED_LOGIN ?? data.NODE_ENV !== 'production';
 
+/**
+ * Live Vercel frontend URL. Used as a production fallback for the verification
+ * and password-reset links (and CORS) when CLIENT_URL / CORS_ORIGINS are not
+ * supplied in the environment, so those links are never sent pointing at
+ * `localhost` in production. Local dev always provides CLIENT_URL=localhost:
+ * 5173 in server/.env, so this default is only a safety net.
+ */
+const PRODUCTION_CLIENT_URL = 'https://mealmate-client-three.vercel.app';
+
+const clientUrl: string = (data.CLIENT_URL ?? '').trim()
+  ? data.CLIENT_URL
+  : data.NODE_ENV === 'production'
+    ? PRODUCTION_CLIENT_URL
+    : 'http://localhost:5173';
+
+const corsOriginsRaw: string = (data.CORS_ORIGINS ?? '').trim()
+  ? data.CORS_ORIGINS
+  : data.NODE_ENV === 'production'
+    ? `${PRODUCTION_CLIENT_URL},http://localhost:5173`
+    : 'http://localhost:5173';
+
 export const env = {
   ...data,
+  CLIENT_URL: clientUrl,
+  CORS_ORIGINS: corsOriginsRaw,
   isProd: data.NODE_ENV === 'production',
   isDev: data.NODE_ENV === 'development',
   isTest: data.NODE_ENV === 'test',
   allowUnverifiedLogin,
-  corsOrigins: data.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
+  corsOrigins: corsOriginsRaw.split(',').map((o) => o.trim()).filter(Boolean),
 };
