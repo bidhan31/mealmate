@@ -19,14 +19,26 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional().default(''),
   GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
 
-  BREVO_API_KEY: z.string().optional().default(''),
-  MAIL_FROM: z.string().optional().default('MealMate <no-reply@mealmate.app>'),
+  BREVO_API_KEY: z
+    .string()
+    .optional()
+    .default('')
+    .transform((v) => v.trim().replace(/^["']|["']$/g, '')),
+  MAIL_FROM: z
+    .string()
+    .optional()
+    .default('MealMate <no-reply@mealmate.app>')
+    .transform((v) => v.trim().replace(/^["']|["']$/g, '')),
 
   /**
    * Which transport delivers mail: 'brevo' | 'smtp' | 'console'.
    * Unset → auto-detect: Brevo key first, then SMTP, otherwise console logging.
    */
-  MAIL_PROVIDER: z.string().optional().default(''),
+  MAIL_PROVIDER: z
+    .string()
+    .optional()
+    .default('')
+    .transform((v) => v.trim().toLowerCase().replace(/^["']|["']$/g, '')),
 
   /** SMTP transport (e.g. Gmail: smtp.gmail.com, port 465, app password). */
   SMTP_HOST: z.string().optional().default(''),

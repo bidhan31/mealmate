@@ -28,13 +28,12 @@ services:
         sync: false
       - key: MAIL_FROM
         sync: false
-      # Leave unset (defaults to false in production) or set to "true" as a
-      # temporary unblock while the mail provider is unavailable.
+      # Allow login even if mail provider experiences temporary cloud IP block.
       - key: ALLOW_UNVERIFIED_LOGIN
-        sync: false
-      # 'brevo' | 'smtp' | 'console' — unset to auto-detect.
+        value: "true"
+      # 'brevo' | 'smtp' | 'console'
       - key: MAIL_PROVIDER
-        sync: false
+        value: brevo
       # SMTP transport (optional alternative to Brevo, e.g. Gmail).
       - key: SMTP_HOST
         sync: false
