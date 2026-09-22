@@ -49,4 +49,4 @@ services:
       - key: CLIENT_URL
         sync: false
       - key: CORS_ORIGINS
-        value: https://dev-mealmate.netlify.app,http://localhost:5173
+        value: https://mealmate.vercel.app,https://dev-mealmate.netlify.app,http://localhost:5173
