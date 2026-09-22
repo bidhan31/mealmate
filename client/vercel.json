@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://mealmate-nv30.onrender.com"
+      "destination": "https://mealmate-nv30.onrender.com/api/$1"
     },
     {
       "source": "/(.*)",
